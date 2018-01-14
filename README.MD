@@ -9,13 +9,14 @@ The model weights should be placed in the `pac_data` directory.
 
 To run the trained model on a test set, follow these steps:
 1. Place the test data in a directory with the following structure:
--repository root
----data
------validation
--------0
-----------NPZ FILES HERE
--------1
-----------NPZ FILES HERE
+
+-repository root  
+---data  
+-----validation  
+-------0  
+----------NPZ FILES HERE  
+-------1  
+----------NPZ FILES HERE  
 Note: the labels in the directory structure are used simply to calculate
 statistics such as accuracy and recall.
 
