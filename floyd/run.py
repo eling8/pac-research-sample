@@ -1,5 +1,9 @@
+"""
+Main file.
+Contains data manipulation/display, miscellaneous helper functions,
+and training.
+"""
 import cv2
-from datetime import datetime
 import math
 import numpy as np
 import os
@@ -16,7 +20,6 @@ from keras.utils import Sequence
 
 TEST_IMAGE = "pac_data/02/0/20160930_082811_796.npz"
 
-WEIGHTS_TO_USE = "weights.18-0.99009.hdf5"
 MISC_PATH = "../misc"
 OUTPUT_PATH = "../output"
 OLD_DATA_PATH = "../pac_data"
@@ -32,12 +35,12 @@ if not os.path.exists(OUTPUT_PATH):
     os.makedirs(OUTPUT_PATH)
 
 SMALL_SET_SENSORS = ['04', '06']
-SMALL_SET_PERCENTAGE = 0.5
+SMALL_SET_PERCENTAGE = 0.1
 
 BATCH_SIZE = 50
 LEARNING_RATE = 0.0001
 VALIDATION_PERCENTAGE = 0.2
-RANDOM_SEED = 0
+RANDOM_SEED = 5#0
 NUM_EPOCHS = 15
 
 np.random.seed(RANDOM_SEED)
@@ -75,7 +78,7 @@ def split_and_rearrange_data():
     os.makedirs(os.path.join(VALIDATION_PATH, '1'))
 
     for sensor_id in os.listdir(OLD_DATA_PATH):
-        if sensor_id == '.floyddata':
+        if not sensor_id.isdigit():
             continue
 
         print("Starting sensor %s" % sensor_id)
@@ -118,7 +121,6 @@ def load_depth_map(filename):
 
 """
 Copied from Research Sample summary
-To show image: cv2.imshow("Image", img); cv2.waitKey(0)
 """
 def depth_map_to_image(depth_map):
     img = cv2.normalize(depth_map, depth_map, 0, 1, cv2.NORM_MINMAX)
@@ -134,13 +136,21 @@ def display_image(depth_map):
     cv2.imshow("Image", depth_map_to_image(depth_map))
     cv2.waitKey(0)
 
+def show_image(filename):
+    depth_map = load_depth_map(filename)
+    display_image(depth_map)
+
+"""
+Add a dimension to a numpy array.
+Must be called on depth map arrays to add a 4th dimension with 1 channel
+"""
 def add_dimension(arr):
     return np.expand_dims(arr, axis=3)
 
 """
 Create a small dataset for testing purposes
 Returns data + labels for both train and validation sets
-Takes only a percentage (20%) of the first sensor's data
+Takes only a percentage of the specified sensors' data
 """
 def create_small_data():
     np.random.seed(RANDOM_SEED)
@@ -189,6 +199,10 @@ def create_small_data():
 
     return train_data, train_labels, valid_data, valid_labels
 
+"""
+Computes the total number of examples in all directories.
+Expects split_and_rearrange_data() to have run.
+"""
 def num_examples(train=True):
     target_dir = TRAIN_PATH if train else VALIDATION_PATH
 
@@ -198,9 +212,14 @@ def num_examples(train=True):
     return num_zeros + num_ones
 
 """
-For use with multiprocessing
+For use with multiprocessing (is safer than a generator)
+Replaces generate_data_batch() below.
 """
 class GeneratorSequence(Sequence):
+    """
+    batch_size: size of batches the generator should yield
+    train: whether to use training data. if False, uses validation data.
+    """
     def __init__(self, batch_size=BATCH_SIZE, train=True):
         self.batch_size = batch_size
 
@@ -214,6 +233,7 @@ class GeneratorSequence(Sequence):
         filenames.extend([os.path.join(one_dir, file) for file in os.listdir(one_dir)])
         labels.extend([1] * (len(filenames) - len(labels)))
 
+        # Shuffle examples
         self.num_examples = len(filenames)
         self.p = np.random.permutation(self.num_examples)
         self.x = np.array(filenames)[self.p]
@@ -224,6 +244,7 @@ class GeneratorSequence(Sequence):
     def __len__(self):
         return int(math.ceil(1.0 * self.num_examples / self.batch_size))
 
+    # Return X, Y of size batch_size
     def __getitem__(self, idx):
         batch_x = self.x[idx * self.batch_size:(idx + 1) * self.batch_size]
         batch_y = self.y[idx * self.batch_size:(idx + 1) * self.batch_size]
@@ -231,6 +252,7 @@ class GeneratorSequence(Sequence):
         return add_dimension(np.array([load_depth_map(filename)
                             for filename in batch_x])), batch_y
 
+    # After each epoch, reshuffle order of examples.
     def on_epoch_end(self):
         self.p = np.random.permutation(self.num_examples)
         self.x = np.array(self.x)[self.p]
@@ -240,7 +262,9 @@ class GeneratorSequence(Sequence):
 Generator that yields batches of shuffled data
 `train` parameter specifies whether using training or validation set
 
-Replaced by GeneratorSequence for use with multiprocessing
+Replaced by GeneratorSequence for use with multiprocessing. Used in predict.py.
+
+Expects data from split_and_rearrange_data() above.
 """
 def generate_data_batch(train=True):
     target_dir = TRAIN_PATH if train else VALIDATION_PATH
@@ -270,7 +294,7 @@ def generate_data_batch(train=True):
                         )
             label_set = labels[curr_p]
 
-            yield (data_set, label_set)
+            yield (data_set, label_set, filenames[curr_p])
 
 """
 Taken from: 
@@ -278,26 +302,14 @@ https://stackoverflow.com/questions/43547402/how-to-calculate-f1-macro-in-keras
 """
 def f1(y_true, y_pred):
     def recall(y_true, y_pred):
-        """Recall metric.
-
-        Only computes a batch-wise average of recall.
-
-        Computes the recall, a metric for multi-label classification of
-        how many relevant items are selected.
-        """
+        # Recall:how many relevant items are selected
         true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
         possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
         recall = true_positives / (possible_positives + K.epsilon())
         return recall
 
     def precision(y_true, y_pred):
-        """Precision metric.
-
-        Only computes a batch-wise average of precision.
-
-        Computes the precision, a metric for multi-label classification of
-        how many selected items are relevant.
-        """
+        # Precision: how many selected items are relevant
         true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
         predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
         precision = true_positives / (predicted_positives + K.epsilon())
@@ -308,54 +320,9 @@ def f1(y_true, y_pred):
     denom = K.maximum(precision + recall, K.epsilon()) # avoid returning NaN
     return 2 * (precision * recall) / denom
 
-"""
-Source:
-https://github.com/tatsuyah/CNN-Image-Classifier/blob/master/src/train-binary.py
-"""
-def create_model_v1():
-    model = Sequential()
-
-    model.add(Conv2D(32, (3, 3), padding="same", input_shape=(IMG_HEIGHT, IMG_WIDTH, 1), data_format='channels_first'))
-    model.add(Activation("relu"))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    model.add(Conv2D(64, (2, 2), padding="same"))
-    model.add(Activation("relu"))
-    model.add(MaxPooling2D(pool_size=(2, 2), data_format='channels_first'))
-
-    model.add(Conv2D(64, (2, 2), padding="same"))
-    model.add(Activation("relu"))
-    model.add(MaxPooling2D(pool_size=(2, 2), data_format='channels_first'))
-
-    model.add(Flatten())
-    model.add(Dense(512))
-    model.add(Activation("relu"))
-    model.add(Dropout(0.5))
-    model.add(Dense(1))
-    model.add(Activation('sigmoid'))
-
-    model.compile(loss='binary_crossentropy',
-                  optimizer=optimizers.Adam(lr=LEARNING_RATE),
-                  metrics=['accuracy', f1])
-
-    return model
-
 def create_model():
     model = Sequential()
 
-    # model.add(Conv2D(32, (3, 3), activation='relu', padding="same", input_shape=(IMG_HEIGHT, IMG_WIDTH, 1), data_format='channels_first'))
-    # model.add(Conv2D(32, (2, 2), activation='relu', padding="same"))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    # model.add(Conv2D(64, (3, 3), activation='relu', padding="same", input_shape=(IMG_HEIGHT, IMG_WIDTH, 1), data_format='channels_first'))
-    # model.add(Conv2D(64, (2, 2), activation='relu', padding="same"))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    # # v3
-    # model.add(Conv2D(128, (3, 3), activation='relu', padding="same", input_shape=(IMG_HEIGHT, IMG_WIDTH, 1), data_format='channels_first'))
-    # model.add(Conv2D(128, (2, 2), activation='relu', padding="same"))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
-    # #v3
     model.add(Conv2D(32, (3, 3), activation='relu', padding="same", input_shape=(IMG_HEIGHT, IMG_WIDTH, 1), data_format='channels_last'))
     model.add(Conv2D(32, (2, 2), activation='relu', padding="same"))
     model.add(MaxPooling2D(pool_size=(2, 2)))
@@ -367,10 +334,6 @@ def create_model():
     model.add(Conv2D(128, (3, 3), activation='relu', padding="same", data_format='channels_last'))
     model.add(Conv2D(128, (2, 2), activation='relu', padding="same"))
     model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    # model.add(Conv2D(256, (3, 3), activation='relu', padding="same", data_format='channels_last'))
-    # model.add(Conv2D(256, (2, 2), activation='relu', padding="same"))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
 
     model.add(Flatten())
     model.add(Dense(256))
@@ -385,6 +348,9 @@ def create_model():
 
     return model
 
+"""
+Save a set of images as jpg.
+"""
 def save_images():
     sensor = '08'
     sensor_dir = os.path.join(OLD_DATA_PATH, sensor)
@@ -396,6 +362,11 @@ def save_images():
             new_name = file.split('.')[0] + ".jpg"
             save_image(img, os.path.join(MISC_PATH, new_name))
 
+"""
+Trains model on a small set, generated by create_small_data().
+Since data is fed to the model all at once, the training and validation sets
+must be small enough to fit in memory.
+"""
 def train_small_set(model, checkpointer):
     train_data, train_labels, valid_data, valid_labels = create_small_data()
     print("Training data:")
@@ -409,8 +380,13 @@ def train_small_set(model, checkpointer):
           validation_data=(valid_data, valid_labels),
           callbacks=[checkpointer])
 
+    # Return if we want to run more specific tests on validation data.
     return valid_data, valid_labels
 
+"""
+Train the given model using GeneratorSequence() to feed the model one
+batch at a time, to avoid memory issues when training large numbers of examples.
+"""
 def train_with_generator(model, checkpointer):
     split_and_rearrange_data()
 
@@ -423,49 +399,26 @@ def train_with_generator(model, checkpointer):
                         steps_per_epoch=num_train_steps,
                         epochs=NUM_EPOCHS,
                         callbacks=[checkpointer],
-                        validation_data=generate_data_batch(train=False),
+                        validation_data=GeneratorSequence(train=False),
                         validation_steps=num_valid_steps,
                         use_multiprocessing=True,
                         workers=2,
                         max_queue_size=20)
 
-def predict_with_generator(model, num_samples=100):
-    num_steps = int(math.ceil(1.0 * num_samples / BATCH_SIZE))
-    predictions = model.predict_generator(generate_data_batch(train=False),
-                                          steps=num_steps,
-                                          verbose=1)
-    print(predictions)
-
 def main():
-    print_params()
-    model = create_model()
-    checkpointer = ModelCheckpoint(
-        filepath=OUTPUT_PATH + '/weights.{epoch:02d}-{val_acc:.5f}.hdf5', 
-        monitor='val_acc',
-        verbose=1, 
-        save_weights_only=True,
-        save_best_only=False)
+    show_image('../data/validation/1/20170121_083053_589.npz')
 
-    val_X, val_Y = train_small_set(model, checkpointer)
-    
+    # print_params()
+    # model = create_model()
+    # checkpointer = ModelCheckpoint(
+    #     filepath=OUTPUT_PATH + '/weights.{epoch:02d}-{val_acc:.5f}.hdf5', 
+    #     monitor='val_acc',
+    #     verbose=1, 
+    #     save_weights_only=True,
+    #     save_best_only=False)
+
+    # # train_small_set(model, checkpointer)
     # train_with_generator(model, checkpointer)
-
-    # save_images()
-    # depth_map = load_depth_map(os.path.join(OLD_DATA_PATH, '72', '1', '20170106_084812_642.npz'))
-    # print(depth_map)
-    # print(np.min(depth_map))
-    # print(np.max(depth_map))
-
-    # hog = cv2.HOGDescriptor()
-    # h = hog.compute(depth_map_to_image(depth_map))
-    # print(h)
-    # display_image(depth_map)
-
-    # print("Loading weights...")
-    # model.load_weights(WEIGHTS_TO_USE)
-
-    # print("Saving weights...")
-    # model.save_weights(OUTPUT_PATH + "/" + str(datetime.now()) + '.h5')
 
 if __name__ == "__main__":
     main()

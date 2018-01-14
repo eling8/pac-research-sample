@@ -1,7 +1,9 @@
 import run
+import predict
 
 from sklearn.externals import joblib
 from sklearn import svm
+from sklearn.metrics import confusion_matrix
 
 WEIGHTS_NAME = run.OUTPUT_PATH + "/svm-weights.pkl"
 
@@ -25,27 +27,6 @@ def prepare_data():
 
     return train_data, train_labels, valid_data, valid_labels
 
-def accuracy(predicted, actual):
-    assert len(predicted) == len(actual)
-    num_predictions = len(predicted)
-    num_correct = sum([1 for i in range(num_predictions) if predicted[i] == val_Y[i]])
-    return (1.0 * num_correct / num_predictions)
-
-def f1(predicted, actual):
-    num_predictions = len(predicted)
-    true_positives = 1.0 * sum([predicted[i] * actual[i] for i in range(num_predictions)])
-    possible_positives = sum(actual)
-    predicted_positives = sum(predicted)
-
-    recall = true_positives / possible_positives
-    precision = true_positives / predicted_positives
-
-    print("\tRecall:", recall)
-    print("\tPrecision:", precision)
-
-    denom = max(0.0001, precision + recall)
-    return 2 * (precision * recall) / denom
-
 def save_svm_model(model):
     """
     Documentation:
@@ -59,8 +40,8 @@ def load_svm_model():
 train_X, train_Y, val_X, val_Y = prepare_data()
 
 print("Fitting model...")
-# The “balanced” mode uses the values of y to automatically adjust weights inversely proportional to class frequencies in the input data as n_samples / (n_classes * np.bincount(y))
 
+# The “balanced” mode uses the values of y to automatically adjust weights inversely proportional to class frequencies in the input data as n_samples / (n_classes * np.bincount(y))
 model = svm.SVC(kernel='poly', random_state=run.RANDOM_SEED, class_weight='balanced', cache_size=500) 
 model.fit(train_X, train_Y)
 score = model.score(train_X, train_Y)
@@ -72,5 +53,7 @@ save_svm_model(model)
 print("Running predictions...")
 predicted = model.predict(val_X)
 
-print("\tAccuracy:", accuracy(predicted, val_Y))
-print("\tF1:", f1(predicted, val_Y))
+print("\tAccuracy:", predict.accuracy(predicted, val_Y))
+print("\tF1:", predict.f1(predicted, val_Y))
+
+print(confusion_matrix(val_Y, predicted))
