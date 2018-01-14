@@ -77,7 +77,7 @@ def split_and_rearrange_data():
     os.makedirs(os.path.join(VALIDATION_PATH, '0'))
     os.makedirs(os.path.join(VALIDATION_PATH, '1'))
 
-    for sensor_id in os.listdir(OLD_DATA_PATH):
+    for sensor_id in sorted(os.listdir(OLD_DATA_PATH)):
         if not sensor_id.isdigit():
             continue
 
@@ -93,7 +93,7 @@ def split_and_rearrange_data():
             label_dir = os.path.join(sensor_dir, label)
 
             # Shuffle files within specific sensor/label
-            all_files = os.listdir(label_dir)
+            all_files = sorted(os.listdir(label_dir))
             random.shuffle(all_files)
 
             # Select first VALIDATION_PERCENTAGE as validation set
@@ -388,8 +388,6 @@ Train the given model using GeneratorSequence() to feed the model one
 batch at a time, to avoid memory issues when training large numbers of examples.
 """
 def train_with_generator(model, checkpointer):
-    split_and_rearrange_data()
-
     num_train_steps = int(math.ceil(1.0 * num_examples() / BATCH_SIZE))
     num_valid_steps = int(math.ceil(1.0 * num_examples(train=False) / BATCH_SIZE))
     print("Train steps per epoch:", num_train_steps)
@@ -406,21 +404,19 @@ def train_with_generator(model, checkpointer):
                         max_queue_size=20)
 
 def main():
-    images = ['../data/validation/1/20170121_085302_119.npz', '../data/validation/0/20170118_124459_268.npz', '../data/validation/0/20170123_173848_388.npz', '../data/validation/0/20170107_201257_153.npz']
-    for path in images:
-        show_image(path)
+    split_and_rearrange_data()
 
-    # print_params()
-    # model = create_model()
-    # checkpointer = ModelCheckpoint(
-    #     filepath=OUTPUT_PATH + '/weights.{epoch:02d}-{val_acc:.5f}.hdf5', 
-    #     monitor='val_acc',
-    #     verbose=1, 
-    #     save_weights_only=True,
-    #     save_best_only=False)
+    print_params()
+    model = create_model()
+    checkpointer = ModelCheckpoint(
+        filepath=OUTPUT_PATH + '/weights.{epoch:02d}-{val_acc:.5f}.hdf5', 
+        monitor='val_acc',
+        verbose=1, 
+        save_weights_only=True,
+        save_best_only=False)
 
-    # # train_small_set(model, checkpointer)
-    # train_with_generator(model, checkpointer)
+    # train_small_set(model, checkpointer)
+    train_with_generator(model, checkpointer)
 
 if __name__ == "__main__":
     main()
