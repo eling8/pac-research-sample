@@ -40,7 +40,7 @@ SMALL_SET_PERCENTAGE = 0.1
 BATCH_SIZE = 50
 LEARNING_RATE = 0.0001
 VALIDATION_PERCENTAGE = 0.2
-RANDOM_SEED = 5#0
+RANDOM_SEED = 0
 NUM_EPOCHS = 15
 
 np.random.seed(RANDOM_SEED)
@@ -406,7 +406,9 @@ def train_with_generator(model, checkpointer):
                         max_queue_size=20)
 
 def main():
-    show_image('../data/validation/1/20170121_083053_589.npz')
+    images = ['../data/validation/1/20170121_085302_119.npz', '../data/validation/0/20170118_124459_268.npz', '../data/validation/0/20170123_173848_388.npz', '../data/validation/0/20170107_201257_153.npz']
+    for path in images:
+        show_image(path)
 
     # print_params()
     # model = create_model()

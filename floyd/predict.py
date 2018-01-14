@@ -5,8 +5,11 @@ import os
 from sklearn.metrics import confusion_matrix
 
 SAVED_WEIGHTS = "../pac_data/weights.09-0.98542.hdf5"
-NUM_TO_PREDICT = 500  # set to None to predict all
+NUM_TO_PREDICT = None  # set to None to predict all
 EPSILON = 0.0001
+
+if NUM_TO_PREDICT == None:
+    NUM_TO_PREDICT = run.num_examples(train=False)
 
 def accuracy(predicted, actual):
     assert len(predicted) == len(actual)
@@ -55,6 +58,8 @@ def predict_with_generator(model):
     sensors = []
     files = []
 
+    print("Total batches:", NUM_TO_PREDICT / run.BATCH_SIZE)
+
     num_batches = 0
     for X, Y, filenames in run.generate_data_batch(train=False):
         if NUM_TO_PREDICT and num_batches * run.BATCH_SIZE >= NUM_TO_PREDICT:
@@ -70,6 +75,7 @@ def predict_with_generator(model):
         files.extend(filenames)
 
         num_batches += 1
+        print("finished batch", num_batches)
 
     y_true = np.array(y_true)
     sensors = np.array(sensors)
@@ -92,7 +98,7 @@ def get_per_sensor_stats(y_true, y_pred, sensors, files):
     false_negatives = []
 
     for sensor_id in os.listdir(run.OLD_DATA_PATH):
-        if sensor_id == '.floyddata':
+        if not sensor_id.isdigit():
             continue
 
         print("Sensor", sensor_id)
